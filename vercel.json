@@ -1,0 +1,12 @@
+{
+  "buildCommand": null,
+  "outputDirectory": ".",
+  "functions": {
+    "api/parse.js": {
+      "runtime": "@vercel/edge"
+    }
+  },
+  "routes": [
+    { "src": "/api/parse", "dest": "/api/parse" }
+  ]
+}
