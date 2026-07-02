@@ -1,0 +1,13 @@
+{
+  "name": "roadbook-studio",
+  "private": true,
+  "scripts": {
+    "test": "node tests/route-utils.test.js && node tests/share-utils.test.js && node tests/place-utils.test.js && node --no-warnings tests/share-api.test.mjs",
+    "check": "node --check assets/app.js && node --check assets/route-utils.js && node --check assets/share-utils.js && node --check assets/place-utils.js && node --check functions/api/parse.js && node --check functions/api/route.js && node --check functions/api/share.js && node --check 'functions/share/[id].js'",
+    "dev:share": "npx wrangler pages dev . --compatibility-date=2024-09-01 --kv ROADBOOKS",
+    "dev:cloudflare": "npx wrangler pages dev . --compatibility-date=2024-09-01 --ai AI --kv ROADBOOKS",
+    "deploy:cloudflare": "npx wrangler pages deploy . --project-name roadbook-studio --branch main --commit-dirty=true",
+    "cloudflare:setup": "npx wrangler kv namespace create ROADBOOKS --binding ROADBOOKS --update-config",
+    "kv:create": "npm run cloudflare:setup"
+  }
+}

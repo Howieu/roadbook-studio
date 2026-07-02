@@ -5,8 +5,12 @@
   "display": "standalone",
   "background_color": "#f5f4ef",
   "theme_color": "#1f5f70",
-  "description": "AI 旅行路书生成器 — 粘贴攻略文本或上传截图，自动生成可分享的行程路书",
+  "description": "输入旅行点位和攻略素材，生成不走回头路的旅行路书。",
   "icons": [
-    { "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect fill='%231f5f70' rx='80' width='512' height='512'/%3E%3Ctext x='256' y='340' text-anchor='middle' fill='white' font-family='Georgia' font-size='280' font-weight='700'%3ER%3C/text%3E%3C/svg%3E", "sizes": "512x512", "type": "image/svg+xml" }
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect fill='%231f5f70' rx='80' width='512' height='512'/%3E%3Ctext x='256' y='340' text-anchor='middle' fill='white' font-family='Georgia' font-size='280' font-weight='700'%3ER%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
   ]
 }
