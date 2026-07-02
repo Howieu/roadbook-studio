@@ -176,6 +176,36 @@
     };
   }
 
+  function toBase64Url(value) {
+    if (typeof Buffer !== "undefined") {
+      return Buffer.from(value, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    }
+    var bytes = new TextEncoder().encode(value);
+    var binary = "";
+    for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+
+  function fromBase64Url(value) {
+    var base64 = String(value || "").replace(/^#/, "").replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) base64 += "=";
+    if (typeof Buffer !== "undefined") return Buffer.from(base64, "base64").toString("utf8");
+    var binary = atob(base64);
+    var bytes = new Uint8Array(binary.length);
+    for (var i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new TextDecoder().decode(bytes);
+  }
+
+  function staticShareUrl(state, baseHref) {
+    var url = new URL("share.html", baseHref || location.href);
+    url.hash = toBase64Url(buildRoadbookDocument(state));
+    return url.href;
+  }
+
+  function decodeStaticShareHash(hash) {
+    return fromBase64Url(hash);
+  }
+
   function qrCodeUrl(url) {
     return "https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=8&data=" +
       encodeURIComponent(url || "");
@@ -183,7 +213,9 @@
 
   return {
     buildRoadbookDocument: buildRoadbookDocument,
+    decodeStaticShareHash: decodeStaticShareHash,
     qrCodeUrl: qrCodeUrl,
     sharePayload: sharePayload,
+    staticShareUrl: staticShareUrl,
   };
 });

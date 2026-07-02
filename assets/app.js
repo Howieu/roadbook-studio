@@ -445,8 +445,10 @@
       saveDraft();
       renderShareView();
     }).catch(function () {
-      state.shareUrl = "";
-      $("shareView").innerHTML = '<div class="warning">云端发布暂不可用。部署 Cloudflare 后请配置 ROADBOOKS KV binding。</div>';
+      state.shareUrl = ShareUtils.staticShareUrl(state, location.href);
+      saveDraft();
+      renderShareView();
+      $("shareView").insertAdjacentHTML("afterbegin", '<div class="warning">Cloudflare 发布暂不可用，已生成静态分享链接。路线太长时请改用 Cloudflare KV。</div>');
     }).finally(function () {
       setBusy("shareCloudBtn", false, "发布云端网页");
     });

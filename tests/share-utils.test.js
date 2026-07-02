@@ -1,5 +1,11 @@
 const assert = require("assert");
-const { buildRoadbookDocument, qrCodeUrl, sharePayload } = require("../assets/share-utils.js");
+const {
+  buildRoadbookDocument,
+  decodeStaticShareHash,
+  qrCodeUrl,
+  sharePayload,
+  staticShareUrl,
+} = require("../assets/share-utils.js");
 
 function run() {
   const state = {
@@ -35,6 +41,10 @@ function run() {
   assert.strictEqual(payload.title, "京都 路书");
   assert(payload.html.includes("<!doctype html>"));
   assert.strictEqual(payload.trip.destination, "京都");
+
+  const staticUrl = staticShareUrl(state, "https://howieu.github.io/roadbook-studio/index.html");
+  assert(staticUrl.startsWith("https://howieu.github.io/roadbook-studio/share.html#"));
+  assert.strictEqual(decodeStaticShareHash(new URL(staticUrl).hash), html);
 
   const qr = qrCodeUrl("https://roadbook.example/share/abc");
   assert(qr.startsWith("https://api.qrserver.com/v1/create-qr-code/"));
