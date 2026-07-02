@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>旅行路书</title>
+<style>
+  html, body, iframe { width: 100%; height: 100%; margin: 0; border: 0; }
+  body { background: #f5f4ef; }
+  .error { padding: 24px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #171717; }
+</style>
+<iframe id="roadbook" title="旅行路书" sandbox="allow-popups allow-popups-to-escape-sandbox allow-top-navigation-by-user-activation"></iframe>
+<script src="assets/share-utils.js"></script>
+<script>
+  try {
+    document.getElementById("roadbook").srcdoc = ShareUtils.decodeStaticShareHash(location.hash);
+  } catch (err) {
+    document.body.innerHTML = '<div class="error">路书链接已失效，请重新生成。</div>';
+  }
+</script>
+</html>

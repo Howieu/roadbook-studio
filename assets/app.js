@@ -1,424 +1,569 @@
-/*!
- * Roadbook Studio - MVP App Logic
- * Two-step flow: Input → AI Parse → Result
- */
 (function () {
   "use strict";
 
-  /* ===== State ===== */
-  var state = {
-    pastedText: "",
-    uploadedImages: [],
-    roadbookJson: null,
-    roadbookHtml: null,
-    shareUrl: null,
+  var STORAGE_KEY = "roadbook-studio-draft-v1";
+  var CATEGORY_LABELS = {
+    attraction: "景点",
+    restaurant: "餐厅",
+    photo: "拍照点",
+    shopping: "购物",
+    lodging: "住宿",
+    other: "其他",
   };
 
-  /* ===== Hero Image Mapping ===== */
-  var heroImages = {
-    "马略卡": "https://images.unsplash.com/photo-1543248939-4296e1fea89b?q=80&w=1800&auto=format&fit=crop",
-    "马略卡岛": "https://images.unsplash.com/photo-1543248939-4296e1fea89b?q=80&w=1800&auto=format&fit=crop",
-    "巴黎": "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?q=80&w=1800&auto=format&fit=crop",
-    "东京": "https://images.unsplash.com/photo-1540959733332-eab4deabeeaf?q=80&w=1800&auto=format&fit=crop",
-    "京都": "https://images.unsplash.com/photo-1493997181344-712f2f19d87a?q=80&w=1800&auto=format&fit=crop",
-    "伦敦": "https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?q=80&w=1800&auto=format&fit=crop",
-    "巴塞罗那": "https://images.unsplash.com/photo-1583422409516-2895a77efded?q=80&w=1800&auto=format&fit=crop",
-    "default": "https://images.unsplash.com/photo-1488646953014-85cb44e25828?q=80&w=1800&auto=format&fit=crop"
+  var state = loadDraft() || {
+    step: 0,
+    destination: "",
+    provider: "google",
+    dayCount: 3,
+    lodging: { name: "", address: "" },
+    wishes: "",
+    sourceText: "",
+    images: [],
+    places: [],
+    routeResult: null,
+    warnings: [],
+    shareUrl: "",
   };
 
-  function getHeroImage(destination) {
-    for (var key in heroImages) {
-      if (key !== "default" && destination && destination.indexOf(key) > -1) {
-        return heroImages[key];
-      }
-    }
-    return heroImages["default"];
+  function $(id) {
+    return document.getElementById(id);
   }
 
-  /* ===== DOM Helpers ===== */
-  function $(id) { return document.getElementById(id); }
-
-  /* ===== Init ===== */
-  function init() {
-    // Check viewer mode first
-    if (checkViewerMode()) return;
-
-    // Input page bindings
-    var pasteInput = $("pasteInput");
-    pasteInput.addEventListener("input", function(e) {
-      state.pastedText = e.target.value;
-      $("generateBtn").disabled = state.pastedText.trim().length === 0 && state.uploadedImages.length === 0;
-    });
-
-    // Upload zone
-    var uploadZone = $("uploadZone");
-    var fileInput = $("fileInput");
-    uploadZone.addEventListener("click", function() { fileInput.click(); });
-    fileInput.addEventListener("change", function(e) {
-      handleFiles(e.target.files);
-    });
-    uploadZone.addEventListener("dragover", function(e) {
-      e.preventDefault();
-      uploadZone.classList.add("dragover");
-    });
-    uploadZone.addEventListener("dragleave", function() {
-      uploadZone.classList.remove("dragover");
-    });
-    uploadZone.addEventListener("drop", function(e) {
-      e.preventDefault();
-      uploadZone.classList.remove("dragover");
-      handleFiles(e.dataTransfer.files);
-    });
-
-    // Generate button
-    $("generateBtn").addEventListener("click", generateRoadbook);
-
-    // Result page bindings
-    $("backBtn").addEventListener("click", backToInput);
-    $("openFullBtn").addEventListener("click", openFullPage);
-    $("shareBtn").addEventListener("click", openShareModal);
-    $("shareCloseBtn").addEventListener("click", closeShareModal);
-    $("downloadBtn").addEventListener("click", downloadHtml);
-    $("copyLinkBtn").addEventListener("click", copyShareLink);
+  function esc(value) {
+    return String(value == null ? "" : value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 
-  /* ===== Viewer Mode ===== */
-  function checkViewerMode() {
-    var hash = window.location.hash;
-    if (!hash || !hash.startsWith("#r=")) return false;
+  function uid(prefix) {
+    return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 7);
+  }
 
-    var compressed = hash.substring(3);
+  function loadDraft() {
     try {
-      var jsonStr = LZString.decompressFromEncodedURIComponent(compressed);
-      if (!jsonStr) return false;
-      var roadbook = JSON.parse(jsonStr);
-      state.roadbookJson = roadbook;
-
-      var cssText = getInlineCSS();
-      var heroImage = getHeroImage(roadbook.trip.destination);
-      state.roadbookHtml = RoadbookRenderer.renderRoadbook(roadbook, {
-        cssText: cssText,
-        heroImage: heroImage
-      });
-
-      // Replace entire page
-      document.open();
-      document.write(state.roadbookHtml);
-      document.close();
-      return true;
-    } catch(e) {
-      console.error("Failed to load roadbook from URL:", e);
-      return false;
+      var raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
     }
   }
 
-  /* ===== File Upload ===== */
-  function handleFiles(files) {
-    for (var i = 0; i < files.length; i++) {
-      if (files[i].type.startsWith("image/")) {
-        readFile(files[i]);
-      }
+  function saveDraft() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      $("draftState").textContent = "草稿已保存";
+    } catch (err) {
+      $("draftState").textContent = "草稿未保存";
     }
   }
 
-  function readFile(file) {
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      state.uploadedImages.push({ name: file.name, dataUrl: e.target.result });
-      renderUploadPreview();
-      $("generateBtn").disabled = state.pastedText.trim().length === 0 && state.uploadedImages.length === 0;
+  function syncInputs() {
+    $("destinationInput").value = state.destination || "";
+    $("dayCountInput").value = state.dayCount || 3;
+    $("lodgingNameInput").value = state.lodging.name || "";
+    $("lodgingAddressInput").value = state.lodging.address || "";
+    $("wishesInput").value = state.wishes || "";
+    $("sourceTextInput").value = state.sourceText || "";
+    document.querySelectorAll("input[name='provider']").forEach(function (input) {
+      input.checked = input.value === state.provider;
+    });
+    renderImages();
+    renderPlaces();
+    renderOptimizeSummary();
+    renderResult();
+    setStep(state.step || 0, false);
+  }
+
+  function setStep(step, persist) {
+    state.step = Math.max(0, Math.min(4, step));
+    document.querySelectorAll("[data-step]").forEach(function (panel) {
+      panel.classList.toggle("active", Number(panel.dataset.step) === state.step);
+    });
+    document.querySelectorAll("[data-step-jump]").forEach(function (button) {
+      button.classList.toggle("active", Number(button.dataset.stepJump) === state.step);
+    });
+    if (state.step === 2) renderPlaces();
+    if (state.step === 3) renderOptimizeSummary();
+    if (state.step === 4) renderResult();
+    if (persist !== false) saveDraft();
+  }
+
+  function updateBasics() {
+    state.destination = $("destinationInput").value.trim();
+    state.dayCount = Math.max(1, Math.min(14, Number($("dayCountInput").value) || 1));
+    state.lodging.name = $("lodgingNameInput").value.trim();
+    state.lodging.address = $("lodgingAddressInput").value.trim();
+    state.wishes = $("wishesInput").value;
+    state.sourceText = $("sourceTextInput").value;
+    var checked = document.querySelector("input[name='provider']:checked");
+    state.provider = checked ? checked.value : "google";
+    state.routeResult = null;
+    saveDraft();
+  }
+
+  function readImages(files) {
+    Array.prototype.forEach.call(files || [], function (file) {
+      if (!file.type || !file.type.startsWith("image/")) return;
+      var reader = new FileReader();
+      reader.onload = function (event) {
+        state.images.push({
+          id: uid("img"),
+          name: file.name,
+          dataUrl: event.target.result,
+        });
+        renderImages();
+        saveDraft();
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function renderImages() {
+    var wrap = $("imagePreview");
+    if (!state.images.length) {
+      wrap.innerHTML = "";
+      return;
+    }
+    wrap.innerHTML = state.images.map(function (image) {
+      return '<div class="image-chip"><span>' + esc(image.name) + '</span>' +
+        '<button class="btn danger" data-remove-image="' + esc(image.id) + '">移除</button></div>';
+    }).join("");
+  }
+
+  function normalizePlace(raw, source) {
+    return {
+      id: raw.id || uid("place"),
+      name: String(raw.name || "").trim(),
+      category: raw.category || raw.type || "attraction",
+      notes: raw.notes || raw.description || "",
+      source: source || raw.source || "manual",
+      dayIndex: Math.max(1, Math.min(state.dayCount, Number(raw.dayIndex) || 1)),
+      address: raw.address || "",
+      lat: typeof raw.lat === "number" ? raw.lat : parseMaybeNumber(raw.lat),
+      lng: typeof raw.lng === "number" ? raw.lng : parseMaybeNumber(raw.lng),
+      confidence: raw.confidence || "medium",
     };
-    reader.readAsDataURL(file);
   }
 
-  function renderUploadPreview() {
+  function parseMaybeNumber(value) {
+    var number = Number(value);
+    return Number.isFinite(number) ? number : undefined;
+  }
+
+  function addPlaces(places, source) {
+    var existing = {};
+    state.places.forEach(function (place) {
+      existing[place.name.trim().toLowerCase()] = true;
+    });
+    (places || []).forEach(function (raw) {
+      var place = normalizePlace(raw, source);
+      if (!place.name) return;
+      var key = place.name.trim().toLowerCase();
+      if (existing[key]) return;
+      existing[key] = true;
+      state.places.push(place);
+    });
+    state.routeResult = null;
+    renderPlaces();
+    saveDraft();
+  }
+
+  function addManualPlace() {
+    var name = $("manualNameInput").value.trim();
+    if (!name) return;
+    addPlaces([{
+      name: name,
+      category: $("manualCategoryInput").value,
+      notes: $("manualNotesInput").value.trim(),
+      source: "manual",
+      dayIndex: 1,
+    }], "manual");
+    $("manualNameInput").value = "";
+    $("manualNotesInput").value = "";
+  }
+
+  function dayOptions(selected) {
     var html = "";
-    state.uploadedImages.forEach(function(img, idx) {
-      html += '<div class="preview-item">';
-      html += '<img src="' + img.dataUrl + '" alt="' + escAttr(img.name) + '">';
-      html += '<button class="remove-btn" data-idx="' + idx + '">×</button>';
-      html += '</div>';
-    });
-    $("uploadPreview").innerHTML = html;
-    document.querySelectorAll(".preview-item .remove-btn").forEach(function(btn) {
-      btn.addEventListener("click", function() {
-        var idx = parseInt(btn.dataset.idx);
-        state.uploadedImages.splice(idx, 1);
-        renderUploadPreview();
-        $("generateBtn").disabled = state.pastedText.trim().length === 0 && state.uploadedImages.length === 0;
-      });
-    });
+    for (var i = 1; i <= state.dayCount; i++) {
+      html += '<option value="' + i + '"' + (Number(selected) === i ? " selected" : "") + '>Day ' + i + '</option>';
+    }
+    return html;
   }
 
-  /* ===== Generate Roadbook ===== */
-  function generateRoadbook() {
-    showLoading("正在解析你的旅行攻略...", "AI 正在提取景点、时间和交通信息");
-
-    // Try API first, fall back to client-side parser
-    parseViaAPI()
-      .then(function(roadbook) {
-        hideLoading();
-        state.roadbookJson = roadbook;
-        renderResult(roadbook);
-      })
-      .catch(function(err) {
-        console.warn("API parse failed, using fallback:", err);
-        hideLoading();
-        // Use client-side fallback parser
-        var roadbook = fallbackParser(state.pastedText);
-        state.roadbookJson = roadbook;
-        renderResult(roadbook);
-      });
+  function renderPlaces() {
+    var list = $("placeList");
+    if (!state.places.length) {
+      list.innerHTML = '<div class="empty-state">还没有点位。返回导入页粘贴攻略、上传截图或手动添加。</div>';
+      return;
+    }
+    list.innerHTML = state.places.map(function (place) {
+      return '<article class="place-card" data-place-id="' + esc(place.id) + '">' +
+        '<div class="place-card-head">' +
+        '<div><span class="pill">' + esc(CATEGORY_LABELS[place.category] || place.category) + '</span></div>' +
+        '<button class="btn danger" data-delete-place="' + esc(place.id) + '">删除</button>' +
+        '</div>' +
+        '<label>名称<input data-place-field="name" value="' + esc(place.name) + '"></label>' +
+        '<div class="inline-fields">' +
+        '<label>类型<select data-place-field="category">' + categoryOptions(place.category) + '</select></label>' +
+        '<label>分配到<select data-place-field="dayIndex">' + dayOptions(place.dayIndex) + '</select></label>' +
+        '</div>' +
+        '<label>地址/定位补充<input data-place-field="address" value="' + esc(place.address || "") + '" placeholder="可选，越具体越准"></label>' +
+        '<div class="inline-fields">' +
+        '<label>纬度<input data-place-field="lat" inputmode="decimal" value="' + esc(place.lat == null ? "" : place.lat) + '" placeholder="可选"></label>' +
+        '<label>经度<input data-place-field="lng" inputmode="decimal" value="' + esc(place.lng == null ? "" : place.lng) + '" placeholder="可选"></label>' +
+        '</div>' +
+        '<label>备注<input data-place-field="notes" value="' + esc(place.notes || "") + '"></label>' +
+        '<p class="hint">来源：' + esc(place.source || "manual") + ' · 置信度：' + esc(place.confidence || "medium") + '</p>' +
+        '</article>';
+    }).join("");
   }
 
-  /* ===== AI Parse via API ===== */
-  function parseViaAPI() {
-    var images = state.uploadedImages.map(function(img) { return img.dataUrl; });
+  function categoryOptions(selected) {
+    return Object.keys(CATEGORY_LABELS).map(function (key) {
+      return '<option value="' + esc(key) + '"' + (key === selected ? " selected" : "") + '>' + esc(CATEGORY_LABELS[key]) + '</option>';
+    }).join("");
+  }
 
-    return fetch("/api/parse", {
+  function parseSources() {
+    updateBasics();
+    var hasInput = state.destination.trim() || state.wishes.trim() || state.sourceText.trim() || state.images.length;
+    if (!hasInput) return;
+    setBusy("parseBtn", true, "生成中...");
+    fetch("/api/parse", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        text: state.pastedText,
-        images: images
-      })
-    }).then(function(res) {
-      if (!res.ok) throw new Error("API returned " + res.status);
+        destination: state.destination,
+        wishes: state.wishes,
+        text: state.sourceText,
+        images: state.images.map(function (image) { return image.dataUrl; }),
+      }),
+    }).then(function (res) {
+      if (!res.ok) throw new Error("parse api " + res.status);
       return res.json();
+    }).then(function (data) {
+      addPlaces(data.places || [], "ai");
+      state.warnings = data.warnings || [];
+      setStep(2);
+    }).catch(function () {
+      addPlaces(PlaceUtils.fallbackExtractPlaces([state.wishes, state.sourceText].filter(Boolean).join("\n")), "fallback");
+      state.warnings = ["AI 生成/解析暂不可用，已用本地文本规则提取；截图需要部署 Cloudflare Workers AI 后解析。"];
+      setStep(2);
+    }).finally(function () {
+      setBusy("parseBtn", false, "AI 生成/解析点位");
     });
   }
 
-  /* ===== Client-side Fallback Parser ===== */
-  function fallbackParser(text) {
-    // Simple regex-based parser for when no AI API is available
-    var lines = text.split("\n").filter(function(l) { return l.trim(); });
-    var destination = "";
-    var days = [];
-    var currentDay = null;
-    var dayIndex = 0;
-
-    // Try to detect destination from first few lines
-    var destMatch = text.match(/(?:去|到|前往|游)\s*([^\s,，。.!！]+)/);
-    if (destMatch) destination = destMatch[1];
-
-    // Parse day markers
-    for (var i = 0; i < lines.length; i++) {
-      var line = lines[i].trim();
-      var dayMatch = line.match(/(?:Day|day|第)\s*(\d+|一|二|三|四|五|六|七|八)[日天:]?/i);
-      if (dayMatch) {
-        dayIndex++;
-        currentDay = {
-          date: "",
-          title: "Day " + dayIndex,
-          summary: line.replace(/(?:Day|day|第)\s*\d+[日天:]?\s*/i, "").trim() || "第" + dayIndex + "天行程",
-          stops: []
-        };
-        days.push(currentDay);
-      } else if (currentDay) {
-        // Try to extract time and place
-        var timeMatch = line.match(/(\d{1,2}[:：]\d{2}|\d{1,2}[点时])/);
-        var stop = {
-          time: timeMatch ? timeMatch[1] : "flex",
-          name: line.replace(timeMatch ? timeMatch[0] : "", "").trim().split(/[,，。；;、]/)[0] || line,
-          type: "attraction",
-          description: line,
-          mustGo: false,
-          durationMinutes: 60,
-          deadline: "",
-          fallback: ""
-        };
-        currentDay.stops.push(stop);
-      }
-    }
-
-    // If no days detected, create a single day with all content
-    if (days.length === 0) {
-      var stops = lines.map(function(line) {
-        return {
-          time: "flex",
-          name: line.split(/[,，。；;、]/)[0],
-          type: "attraction",
-          description: line,
-          mustGo: false,
-          durationMinutes: 60,
-          deadline: "",
-          fallback: ""
-        };
-      });
-      days.push({
-        date: "",
-        title: "Day 1",
-        summary: "行程安排",
-        stops: stops
-      });
-    }
-
+  function buildRouteInput() {
     return {
-      trip: {
-        title: (destination || "旅行") + " 路书",
-        destination: destination || "未指定目的地",
-        startDate: "",
-        endDate: "",
-        pace: "standard",
-        interests: []
+      provider: state.provider,
+      destination: state.destination,
+      lodging: {
+        id: "lodging",
+        name: state.lodging.name || "住宿",
+        address: state.lodging.address || state.lodging.name || state.destination,
       },
-      days: days,
-      lodging: [],
-      transport: [],
-      warnings: [
-        "此路书由客户端解析器生成，信息可能不完整。",
-        "建议使用 AI 解析（部署到 Cloudflare 或 Vercel）获得更准确的结果。",
-        "出行前请确认景点营业时间和交通班次。"
-      ],
-      sourceRecords: [{
-        id: "user-input",
-        platform: "paste",
-        title: "用户粘贴文本",
-        excerpt: text.substring(0, 200) + (text.length > 200 ? "..." : ""),
-        confidence: "medium"
-      }]
+      transportMode: "walk_transit",
+      days: RouteUtils.groupPlacesByDay(state.places, state.dayCount).map(function (places, index) {
+        return {
+          dayIndex: index + 1,
+          title: "Day " + (index + 1),
+          places: places,
+          placeIds: places.map(function (place) { return place.id; }),
+        };
+      }),
     };
   }
 
-  /* ===== Render Result ===== */
-  function renderResult(roadbook) {
-    var cssText = getInlineCSS();
-    var heroImage = getHeroImage(roadbook.trip.destination);
-    state.roadbookHtml = RoadbookRenderer.renderRoadbook(roadbook, {
-      cssText: cssText,
-      heroImage: heroImage
+  function optimizeRoutes() {
+    updateBasics();
+    if (!state.places.length) return;
+    setBusy("optimizeBtn", true, "优化中...");
+    fetch("/api/route", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(buildRouteInput()),
+    }).then(function (res) {
+      if (!res.ok) throw new Error("route api " + res.status);
+      return res.json();
+    }).then(function (data) {
+      state.routeResult = data;
+      state.warnings = data.warnings || [];
+      saveDraft();
+      setStep(4);
+    }).catch(function () {
+      state.routeResult = localRouteFallback();
+      state.warnings = ["路线 API 暂不可用；已按你分配的 Day 生成本地清单。填写坐标后可进行本地最近邻排序。"];
+      saveDraft();
+      setStep(4);
+    }).finally(function () {
+      setBusy("optimizeBtn", false, "优化路线");
     });
+  }
 
-    // Show result page
-    $("inputPage").style.display = "none";
-    $("resultPage").classList.add("active");
-    $("resultTitle").textContent = roadbook.trip.title;
+  function localRouteFallback() {
+    var lodging = {
+      id: "lodging",
+      name: state.lodging.name || "住宿",
+      address: state.lodging.address || state.destination,
+    };
+    var grouped = RouteUtils.groupPlacesByDay(state.places, state.dayCount);
+    var allWarnings = [];
+    var days = grouped.map(function (places, index) {
+      var coordsReady = places.some(RouteUtils.hasCoords);
+      if (coordsReady && RouteUtils.hasCoords(lodging)) {
+        var optimized = RouteUtils.optimizeDayRoute({
+          dayIndex: index + 1,
+          lodging: lodging,
+          places: places,
+          provider: state.provider,
+          transportMode: "walk_transit",
+        });
+        allWarnings = allWarnings.concat(optimized.warnings);
+        return optimized;
+      }
+      var orderedStops = [lodging].concat(places, [lodging]);
+      return {
+        dayIndex: index + 1,
+        orderedStops: orderedStops,
+        legs: [],
+        mapUrl: providerMapUrl(state.provider, orderedStops),
+        unresolvedPlaces: places.filter(function (place) { return !RouteUtils.hasCoords(place); }),
+        warnings: places.length ? ["本地模式缺少坐标，保留当前顺序。"] : [],
+      };
+    });
+    return { days: days, unresolvedPlaces: [], warnings: allWarnings };
+  }
 
-    // Set iframe content
-    var frame = $("roadbookFrame");
-    frame.srcdoc = state.roadbookHtml;
+  function providerMapUrl(provider, stops) {
+    return RouteUtils.buildMapUrl(provider, stops || [], "walk_transit") ||
+      "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(state.destination || "travel");
+  }
 
-    // Generate share URL
-    try {
-      var jsonStr = JSON.stringify(roadbook);
-      var compressed = LZString.compressToEncodedURIComponent(jsonStr);
-      var baseUrl = window.location.href.split("#")[0];
-      state.shareUrl = baseUrl + "#r=" + compressed;
-    } catch(e) {
-      console.error("Share URL generation failed:", e);
+  function renderOptimizeSummary() {
+    var grouped = RouteUtils.groupPlacesByDay(state.places, state.dayCount);
+    var total = state.places.length;
+    $("optimizeSummary").innerHTML = total ?
+      "已准备 " + total + " 个点位，" + state.dayCount + " 天，每天默认从住宿出发并回到住宿。" :
+      "还没有可优化的点位。";
+    $("optimizeWarnings").innerHTML = (state.warnings || []).map(function (warning) {
+      return '<div class="warning">' + esc(warning) + '</div>';
+    }).join("");
+    grouped.forEach(function (places, idx) {
+      if (!places.length) {
+        $("optimizeWarnings").innerHTML += '<div class="warning">Day ' + (idx + 1) + ' 还没有点位。</div>';
+      }
+    });
+  }
+
+  function renderResult() {
+    var wrap = $("resultView");
+    if (!state.routeResult || !state.routeResult.days) {
+      wrap.innerHTML = '<div class="empty-state">还没有生成路线。回到第 4 步点击“优化路线”。</div>';
+      $("shareView").innerHTML = "";
+      return;
     }
+    var warnings = (state.routeResult.warnings || []).concat(state.warnings || []);
+    wrap.innerHTML = warnings.map(function (warning) {
+      return '<div class="warning">' + esc(warning) + '</div>';
+    }).join("") + state.routeResult.days.map(renderDayResult).join("");
+    renderShareView();
   }
 
-  /* ===== Actions ===== */
-  function backToInput() {
-    $("resultPage").classList.remove("active");
-    $("inputPage").style.display = "flex";
-    state.roadbookJson = null;
-    state.roadbookHtml = null;
+  function renderShareView() {
+    $("shareView").innerHTML = state.shareUrl ?
+      '<div class="share-card">' +
+      '<img src="' + esc(ShareUtils.qrCodeUrl(state.shareUrl)) + '" alt="云端路书二维码">' +
+      '<div class="grid">' +
+      '<div class="success">云端网页已生成，可直接手机扫码或浏览器打开。</div>' +
+      '<a class="share-link" href="' + esc(state.shareUrl) + '" target="_blank" rel="noopener">' + esc(state.shareUrl) + '</a>' +
+      '<div class="share-card-actions"><button class="btn" id="copyShareBtn">复制链接</button><span class="hint" id="copyShareState"></span></div>' +
+      '</div></div>' :
+      '<div class="empty-state">点击“发布云端网页”后，会生成一个手机可直接打开的网页链接。</div>';
   }
 
-  function openFullPage() {
-    if (!state.roadbookHtml) return;
-    var blob = new Blob([state.roadbookHtml], { type: "text/html" });
+  function renderDayResult(day) {
+    var stops = day.orderedStops || [];
+    var mapHtml = embedMap(stops, day.mapUrl);
+    var list = stops.map(function (stop, index) {
+      return '<li><span class="num">' + (index + 1) + '</span><div><strong>' + esc(stop.name) + '</strong>' +
+        '<p class="hint">' + esc(stop.address || stop.notes || stop.category || "") + '</p></div></li>';
+    }).join("");
+    var warnings = (day.warnings || []).map(function (warning) {
+      return '<div class="warning">' + esc(warning) + '</div>';
+    }).join("");
+    return '<article class="day-card">' +
+      '<header><h3>Day ' + esc(day.dayIndex) + '</h3></header>' +
+      '<div class="day-card-body">' + warnings + mapHtml +
+      '<ol class="route-list">' + list + '</ol>' +
+      (day.mapUrl ? '<a class="btn primary" href="' + esc(day.mapUrl) + '" target="_blank" rel="noopener">打开地图导航</a>' : "") +
+      '</div></article>';
+  }
+
+  function embedMap(stops, mapUrl) {
+    var points = (stops || []).filter(RouteUtils.hasCoords);
+    if (!points.length) {
+      return '<div class="map-frame"><div class="map-placeholder">缺少坐标，先显示路线清单。部署后会通过 Google/高德地理编码补全。</div></div>';
+    }
+    var lat = points[0].lat;
+    var lng = points[0].lng;
+    var src = "https://www.openstreetmap.org/export/embed.html?layer=mapnik&marker=" +
+      encodeURIComponent(lat + "," + lng);
+    return '<div class="map-frame"><iframe title="路线地图" loading="lazy" src="' + esc(src) + '"></iframe></div>';
+  }
+
+  function downloadRoadbook() {
+    if (!state.routeResult) return;
+    var html = ShareUtils.buildRoadbookDocument(state);
+    var blob = new Blob([html], { type: "text/html;charset=utf-8" });
     var url = URL.createObjectURL(blob);
-    window.open(url, "_blank");
-    setTimeout(function() { URL.revokeObjectURL(url); }, 10000);
+    var link = document.createElement("a");
+    link.href = url;
+    link.download = (state.destination || "roadbook").replace(/[^\w\u4e00-\u9fa5-]+/g, "-") + "-roadbook.html";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
-  function openShareModal() {
-    if (!state.shareUrl) return;
-    $("shareLinkInput").value = state.shareUrl;
-    $("shareQrImg").src = "https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=8&data=" +
-                          encodeURIComponent(state.shareUrl);
-    $("shareModal").classList.add("active");
-  }
-
-  function closeShareModal() {
-    $("shareModal").classList.remove("active");
-  }
-
-  function downloadHtml() {
-    if (!state.roadbookHtml) return;
-    var blob = new Blob([state.roadbookHtml], { type: "text/html" });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement("a");
-    a.href = url;
-    a.download = "roadbook.html";
-    a.click();
-    URL.revokeObjectURL(url);
+  function shareCloudRoadbook() {
+    if (!state.routeResult) return;
+    setBusy("shareCloudBtn", true, "发布中...");
+    fetch("/api/share", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(ShareUtils.sharePayload(state)),
+    }).then(function (res) {
+      if (!res.ok) throw new Error("share api " + res.status);
+      return res.json();
+    }).then(function (data) {
+      state.shareUrl = data.url;
+      saveDraft();
+      renderShareView();
+    }).catch(function () {
+      state.shareUrl = ShareUtils.staticShareUrl(state, location.href);
+      saveDraft();
+      renderShareView();
+      $("shareView").insertAdjacentHTML("afterbegin", '<div class="warning">Cloudflare 发布暂不可用，已生成静态分享链接。路线太长时请改用 Cloudflare KV。</div>');
+    }).finally(function () {
+      setBusy("shareCloudBtn", false, "发布云端网页");
+    });
   }
 
   function copyShareLink() {
-    var input = $("shareLinkInput");
-    input.select();
-    input.setSelectionRange(0, 99999);
-    try {
-      if (navigator.clipboard) {
-        navigator.clipboard.writeText(input.value);
-      } else {
-        document.execCommand("copy");
-      }
-      var btn = $("copyLinkBtn");
-      btn.textContent = "已复制";
-      btn.classList.add("copied");
-      setTimeout(function() {
-        btn.textContent = "复制链接";
-        btn.classList.remove("copied");
-      }, 2000);
-    } catch(e) {}
-  }
-
-  /* ===== Loading ===== */
-  function showLoading(text, sub) {
-    $("loadingText").textContent = text;
-    $("loadingSub").textContent = sub;
-    $("loadingOverlay").classList.add("active");
-  }
-
-  function hideLoading() {
-    $("loadingOverlay").classList.remove("active");
-  }
-
-  /* ===== CSS Extraction ===== */
-  function getInlineCSS() {
-    // Try to read from loaded stylesheet
-    for (var i = 0; i < document.styleSheets.length; i++) {
-      var sheet = document.styleSheets[i];
-      if (sheet.href && sheet.href.indexOf("roadbook.css") > -1) {
-        try {
-          var css = "";
-          var rules = sheet.cssRules || sheet.rules;
-          for (var j = 0; j < rules.length; j++) {
-            css += rules[j].cssText + "\n";
-          }
-          return css;
-        } catch(e) {}
-      }
+    if (!state.shareUrl) return;
+    var done = function () {
+      var label = $("copyShareState");
+      if (label) label.textContent = "已复制";
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(state.shareUrl).then(done).catch(done);
+    } else {
+      var input = document.createElement("input");
+      input.value = state.shareUrl;
+      document.body.appendChild(input);
+      input.select();
+      try { document.execCommand("copy"); } catch (err) {}
+      input.remove();
+      done();
     }
-    // Fallback: XHR
-    try {
-      var xhr = new XMLHttpRequest();
-      xhr.open("GET", "assets/roadbook.css", false);
-      xhr.send();
-      if (xhr.status === 200) return xhr.responseText;
-    } catch(e) {}
-    return "";
   }
 
-  /* ===== Utils ===== */
-  function escAttr(str) {
-    return String(str || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+  function fillSample() {
+    $("destinationInput").value = $("destinationInput").value || "京都";
+    $("wishesInput").value = "第一次去京都，想看清水寺、伏见稻荷、祇园，想拍和服照片，吃咖啡甜品和锦市场小吃，路线不要绕。";
+    $("sourceTextInput").value = "Day1 清水寺、二年坂三年坂、%Arabica 咖啡、鸭川散步。\nDay2 伏见稻荷大社、锦市场午餐、祇园拍照。";
+    updateBasics();
   }
 
-  function slugify(value) {
-    return String(value || "").trim().toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "roadbook";
+  function setBusy(id, busy, label) {
+    var button = $(id);
+    button.disabled = busy;
+    button.textContent = label;
   }
 
-  /* ===== Boot ===== */
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
+  function bindEvents() {
+    ["destinationInput", "dayCountInput", "lodgingNameInput", "lodgingAddressInput", "wishesInput", "sourceTextInput"].forEach(function (id) {
+      $(id).addEventListener("input", updateBasics);
+    });
+    document.querySelectorAll("input[name='provider']").forEach(function (input) {
+      input.addEventListener("change", updateBasics);
+    });
+    document.querySelectorAll("[data-next]").forEach(function (button) {
+      button.addEventListener("click", function () { updateBasics(); setStep(state.step + 1); });
+    });
+    document.querySelectorAll("[data-prev]").forEach(function (button) {
+      button.addEventListener("click", function () { updateBasics(); setStep(state.step - 1); });
+    });
+    document.querySelectorAll("[data-step-jump]").forEach(function (button) {
+      button.addEventListener("click", function () { updateBasics(); setStep(Number(button.dataset.stepJump)); });
+    });
+    $("resetBtn").addEventListener("click", function () {
+      localStorage.removeItem(STORAGE_KEY);
+      location.reload();
+    });
+    $("addManualBtn").addEventListener("click", addManualPlace);
+    $("sampleBtn").addEventListener("click", fillSample);
+    $("parseBtn").addEventListener("click", parseSources);
+    $("optimizeBtn").addEventListener("click", optimizeRoutes);
+    $("downloadBtn").addEventListener("click", downloadRoadbook);
+    $("shareCloudBtn").addEventListener("click", shareCloudRoadbook);
+
+    var dropzone = $("dropzone");
+    var imageInput = $("imageInput");
+    dropzone.addEventListener("click", function () { imageInput.click(); });
+    imageInput.addEventListener("change", function (event) { readImages(event.target.files); });
+    dropzone.addEventListener("dragover", function (event) {
+      event.preventDefault();
+      dropzone.classList.add("dragover");
+    });
+    dropzone.addEventListener("dragleave", function () { dropzone.classList.remove("dragover"); });
+    dropzone.addEventListener("drop", function (event) {
+      event.preventDefault();
+      dropzone.classList.remove("dragover");
+      readImages(event.dataTransfer.files);
+    });
+
+    document.body.addEventListener("click", function (event) {
+      if (event.target.closest("#copyShareBtn")) {
+        copyShareLink();
+      }
+      var removeImage = event.target.closest("[data-remove-image]");
+      if (removeImage) {
+        state.images = state.images.filter(function (image) { return image.id !== removeImage.dataset.removeImage; });
+        renderImages();
+        saveDraft();
+      }
+      var deletePlace = event.target.closest("[data-delete-place]");
+      if (deletePlace) {
+        state.places = state.places.filter(function (place) { return place.id !== deletePlace.dataset.deletePlace; });
+        state.routeResult = null;
+        renderPlaces();
+        saveDraft();
+      }
+    });
+
+    document.body.addEventListener("input", updatePlaceFromEvent);
+    document.body.addEventListener("change", updatePlaceFromEvent);
   }
+
+  function updatePlaceFromEvent(event) {
+    var field = event.target.dataset.placeField;
+    if (!field) return;
+    var card = event.target.closest("[data-place-id]");
+    var place = state.places.find(function (item) { return item.id === card.dataset.placeId; });
+    if (!place) return;
+    if (field === "dayIndex") place[field] = Number(event.target.value);
+    else if (field === "lat" || field === "lng") place[field] = parseMaybeNumber(event.target.value);
+    else place[field] = event.target.value;
+    state.routeResult = null;
+    saveDraft();
+  }
+
+  bindEvents();
+  syncInputs();
 })();
